@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: coral-vision-db
+    environment:
+      POSTGRES_DB: coral_vision
+      POSTGRES_USER: coral
+      POSTGRES_PASSWORD: coral
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coral -d coral_vision"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - coral-network
+
+  coral-vision:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: coral-vision-app
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: coral_vision
+      DB_USER: coral
+      DB_PASSWORD: coral
+      DATA_DIR: /app/data
+      USE_EDGETPU: "${USE_EDGETPU:-true}"
+      USE_SSL: "${USE_SSL:-false}"
+      SSL_CERT: "${SSL_CERT:-}"
+      SSL_KEY: "${SSL_KEY:-}"
+      API_KEY: "${API_KEY:-}"
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
+    volumes:
+      - ./data:/app/data
+      - ./certs:/app/certs:ro
+    ports:
+      - "5000:5000"
+    # Mount USB device for Edge TPU access
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    # Add privileged mode for USB device access
+    privileged: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - coral-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  coral-network:
+    driver: bridge

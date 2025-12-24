@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coral Vision - Face Recognition API</title>
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+        <!-- Socket.IO client library -->
+        <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+        <!-- Frontend modules -->
+        <script src="{{ url_for('static', filename='js/logger.js') }}"></script>
+        <script src="{{ url_for('static', filename='js/error-handler.js') }}"></script>
+        <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎭 Coral Vision</h1>
+            <p class="tagline">Offline Face Recognition with Edge TPU Acceleration</p>
+        </div>
+
+        <div class="content">
+            <div class="status">
+                <span class="status-indicator"></span>
+                <strong>Server Status:</strong> Online and Ready |
+                <strong>Edge TPU:</strong> {{ 'Enabled ⚡' if use_edgetpu else 'Disabled' }}
+            </div>
+
+            <div class="api-key-section">
+                <h3>🔐 API Key Configuration</h3>
+                <p>Enter your API key to access the face recognition API. The API key is required for all API requests.</p>
+                <div class="api-key-input-group">
+                    <input type="password" id="api-key-input" class="api-key-input" placeholder="Enter your API key here..." autocomplete="off">
+                    <button class="btn btn-primary" onclick="saveApiKey()">Save API Key</button>
+                </div>
+                <div id="api-key-status" class="api-key-status missing" style="display: none;">
+                    ⚠️ API key is required to use the API
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>What is Coral Vision?</h2>
+                <p>
+                    Coral Vision is a high-performance face recognition system powered by TensorFlow Lite and
+                    optimized for Google Coral Edge TPU. It provides real-time face detection, embedding generation,
+                    and person identification through a simple RESTful API.
+                </p>
+                <p>
+                    Perfect for access control, attendance systems, smart home automation, and any application
+                    requiring secure, offline face recognition capabilities.
+                </p>
+            </div>
+
+            <div class="section">
+                <h2>🎯 Try It Live</h2>
+                <div class="interactive-section">
+                    <div class="tabs">
+                        <button class="tab active" onclick="switchTab('recognize')">🔍 Recognize Faces</button>
+                        <button class="tab" onclick="switchTab('enroll')">👤 Enroll Person</button>
+                        <button class="tab" onclick="switchTab('camera')">📹 Live Camera Feed</button>
+                    </div>
+
+                    <!-- Recognize Tab -->
+                    <div id="recognize-tab" class="tab-content active">
+                        <h3>Face Recognition</h3>
+                        <p>Upload images to detect and recognize faces. The system will show detection scores and matching results.</p>
+
+                        <div class="form-group">
+                            <label>Recognition Threshold (0.0 - 1.0)</label>
+                            <input type="number" id="threshold" value="0.6" step="0.1" min="0" max="1">
+                            <small style="color: #666;">Lower = stricter matching. Default: 0.6</small>
+                        </div>
+
+                        <div class="upload-area" id="recognize-upload" onclick="document.getElementById('recognize-files').click()">
+                            <div style="font-size: 3em; margin-bottom: 10px;">📸</div>
+                            <h3>Drop images here or click to upload</h3>
+                            <p style="color: #666; margin-top: 10px;">Supports: JPG, PNG, WEBP, BMP</p>
+                        </div>
+                        <input type="file" id="recognize-files" multiple accept="image/*" style="display: none;" onchange="handleRecognizeFiles(this.files)">
+
+                        <div id="recognize-previews" class="preview-images"></div>
+
+                        <button class="btn-submit" id="recognize-btn" onclick="recognizeFaces()" disabled>
+                            🔍 Recognize Faces
+                        </button>
+
+                        <div id="recognize-results" class="results-area"></div>
+                    </div>
+
+                    <!-- Enroll Tab -->
+                    <div id="enroll-tab" class="tab-content">
+                        <h3>Person Enrollment</h3>
+                        <p>Register a new person and upload training images. The system will generate embeddings immediately.</p>
+
+                        <div class="form-group">
+                            <label>Person ID *</label>
+                            <input type="text" id="person-id" placeholder="e.g., 0001_john_doe" required>
+                            <small style="color: #666;">Unique identifier (letters, numbers, underscores)</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Full Name *</label>
+                            <input type="text" id="person-name" placeholder="e.g., John Doe" required>
+                        </div>
+
+                        <div class="upload-area" id="enroll-upload" onclick="document.getElementById('enroll-files').click()">
+                            <div style="font-size: 3em; margin-bottom: 10px;">📷</div>
+                            <h3>Drop training images here or click to upload</h3>
+                            <p style="color: #666; margin-top: 10px;">Upload 10-20 images for best results</p>
+                        </div>
+                        <input type="file" id="enroll-files" multiple accept="image/*" style="display: none;" onchange="handleEnrollFiles(this.files)">
+
+                        <div id="enroll-previews" class="preview-images"></div>
+
+                        <button class="btn-submit" id="enroll-btn" onclick="enrollPerson()" disabled>
+                            📸 Enroll Person
+                        </button>
+
+                        <div id="enroll-results" class="results-area"></div>
+                    </div>
+
+                    <!-- Live Camera Feed Tab -->
+                    <div id="camera-tab" class="tab-content">
+                        <h3>Live Camera Feed with Face Recognition & Enrollment</h3>
+                        <p>View live video feed with real-time face recognition. Capture frames to enroll new people or train existing ones.</p>
+
+                        <div class="form-group">
+                            <label>Recognition Threshold (0.0 - 1.0)</label>
+                            <input type="number" id="camera-threshold" value="0.6" step="0.1" min="0" max="1" onchange="updateCameraThreshold()">
+                            <small style="color: #666;">Lower = stricter matching. Default: 0.6</small>
+                        </div>
+
+                        <div class="camera-controls" style="margin: 20px 0;">
+                            <button class="btn-submit" id="start-camera-btn" onclick="startCameraFeed()">
+                                ▶️ Start Camera
+                            </button>
+                            <button class="btn-submit" id="stop-camera-btn" onclick="stopCameraFeed()" disabled style="background: #dc3545;">
+                                ⏹️ Stop Camera
+                            </button>
+                        </div>
+
+                        <div id="camera-container" style="display: none; text-align: center; margin: 20px 0; position: relative;">
+                            <div style="position: relative; display: inline-block; max-width: 100%; width: 100%;">
+                                <video id="camera-video" autoplay playsinline style="max-width: 100%; width: 100%; border-radius: 8px; border: 2px solid #667eea; background: #000; transform: scaleX(-1); display: block;"></video>
+                                <canvas id="camera-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 8px; pointer-events: none; z-index: 10; touch-action: none;"></canvas>
+                            </div>
+                            <canvas id="camera-canvas" style="display: none;"></canvas>
+                        </div>
+
+                        <div id="camera-status" class="results-area" style="display: none;"></div>
+
+                        <!-- Enrollment Section -->
+                        <div id="camera-enrollment-section" style="display: none; margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                            <h3 style="margin-bottom: 15px;">📸 Capture & Enroll</h3>
+                            <p style="margin-bottom: 20px;">Capture frames from the live feed to enroll a person. Capture 10-20 images with different angles and expressions for best results.</p>
+
+                            <div class="form-group">
+                                <label>Person ID *</label>
+                                <input type="text" id="camera-person-id" placeholder="e.g., 0001_john_doe" required>
+                                <small style="color: #666;">Unique identifier (letters, numbers, underscores)</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Full Name *</label>
+                                <input type="text" id="camera-person-name" placeholder="e.g., John Doe" required>
+                            </div>
+
+                            <div class="camera-controls" style="margin: 20px 0;">
+                                <button class="btn-submit" id="capture-btn" onclick="captureFrame()" style="background: #48bb78;">
+                                    📷 Capture Frame
+                                </button>
+                                <button class="btn-submit" id="clear-captures-btn" onclick="clearCapturedFrames()" style="background: #ed8936; margin-left: 10px;">
+                                    🗑️ Clear All
+                                </button>
+                            </div>
+
+                            <div id="captured-count" style="margin: 10px 0; font-weight: 600; color: #667eea;">
+                                Captured: 0 images
+                            </div>
+
+                            <div id="captured-previews" class="preview-images" style="margin: 15px 0;"></div>
+
+                            <button class="btn-submit" id="enroll-captured-btn" onclick="enrollCapturedFrames()" disabled>
+                                📸 Enroll with Captured Images
+                            </button>
+
+                            <div id="camera-enroll-results" class="results-area" style="display: none;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Key Features</h2>
+                <div class="features">
+                    <div class="feature-card">
+                        <h3>🚀 Fast & Efficient</h3>
+                        <p>Edge TPU acceleration delivers real-time inference with minimal latency</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🔒 Privacy First</h3>
+                        <p>100% offline operation - no data leaves your device</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>📊 High Accuracy</h3>
+                        <p>State-of-the-art MobileNet triplet embeddings for precise recognition</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🔌 Simple API</h3>
+                        <p>RESTful endpoints for easy integration with any application</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>How It Works - System Architecture</h2>
+                <p>
+                    Coral Vision uses pre-trained TensorFlow Lite models for face detection and embedding generation.
+                    <strong>Important:</strong> There is no model training - "training" means enrollment (storing face embeddings).
+                </p>
+
+                <div class="info-box">
+                    <h3>📸 Enrollment Process</h3>
+                    <ol>
+                        <li><strong>Register Person:</strong> Create metadata entry (person_id + name) in people.json</li>
+                        <li><strong>Upload Images:</strong> Send multiple face images via API</li>
+                        <li><strong>For Each Image (Immediate Processing):</strong>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li>🔍 <strong>Detect Face:</strong> SSD MobileNet V2 finds faces in image</li>
+                                <li>✂️ <strong>Extract Face:</strong> Crop detected face to 96×96 pixels</li>
+                                <li>🧠 <strong>Generate Embedding:</strong> MobileNet Triplet creates 192-D vector (immediately!)</li>
+                                <li>💾 <strong>Store:</strong> Save face chip (PNG) + embedding (NPY)</li>
+                            </ul>
+                        </li>
+                    </ol>
+                    <div class="warning-box">
+                        <strong>⚡ Key Point:</strong> Embeddings are generated <em>immediately</em> during upload.
+                        No separate training step exists. Models have frozen, pre-trained weights.
+                    </div>
+                </div>
+
+                <div class="info-box">
+                    <h3>🔍 Recognition Process</h3>
+                    <ol>
+                        <li><strong>Upload Test Image:</strong> Send image to recognize endpoint</li>
+                        <li><strong>Face Detection:</strong> Find all faces in image (same detector as enrollment)</li>
+                        <li><strong>Generate Embeddings:</strong> Create 192-D vector for each detected face</li>
+                        <li><strong>Match Against Database:</strong>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li>📊 Load stored embeddings for all enrolled persons</li>
+                                <li>📏 Calculate L2 distance between test embedding and stored embeddings</li>
+                                <li>🎯 Compare against K best embeddings per person (default: 20)</li>
+                                <li>📈 Compute average distance for each person</li>
+                            </ul>
+                        </li>
+                        <li><strong>Ranking & Decision:</strong>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                <li>Sort persons by distance (lower = better match)</li>
+                                <li>Return top K matches (default: 3)</li>
+                                <li>Accept match if distance &lt; threshold (default: 0.6)</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+
+                <div class="info-box-blue">
+                    <h3>🔑 Key Concepts</h3>
+                    <div style="display: grid; gap: 15px;">
+                        <div>
+                            <strong style="color: #667eea;">Embedding Space:</strong><br>
+                            <span>Each face is represented as a 192-dimensional vector. Similar faces = close vectors (low distance)</span>
+                        </div>
+                        <div>
+                            <strong style="color: #667eea;">L2 Distance Matching:</strong><br>
+                            <code style="background: #2d3748; color: #e2e8f0; padding: 5px 10px; border-radius: 4px; font-size: 0.85em;">
+                                distance = sqrt(Σ(test_emb[i] - stored_emb[i])²)
+                            </code>
+                        </div>
+                        <div>
+                            <strong style="color: #667eea;">Multiple Embeddings per Person:</strong><br>
+                            <span>10-20+ embeddings improve robustness against lighting, angles, expressions</span>
+                        </div>
+                        <div>
+                            <strong style="color: #667eea;">Recognition Threshold:</strong><br>
+                            <span>
+                                &lt; 0.4 (strict) | 0.5-0.6 (balanced) ✓ | &gt; 0.8 (lenient)
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="success-box">
+                    <strong>⚡ Performance:</strong><br>
+                    <div style="margin-top: 10px;">
+                        <strong>CPU Mode:</strong> ~50-100ms detection + ~30-50ms embedding<br>
+                        <strong>Edge TPU Mode {{ '(Active)' if use_edgetpu else '(Available)' }}:</strong> ~10-20ms detection + ~5-10ms embedding <span style="color: #28a745;">(5× faster!)</span>
+                    </div>
+                </div>
+
+                <div class="flow-box">
+                    <h3 style="color: #667eea; margin-bottom: 15px;">📊 Data Flow</h3>
+                    <div class="flow-step">
+                        <div class="flow-enrollment">
+                            <strong>ENROLLMENT:</strong><br>
+                            Image → Detect → Crop → Embed → Store (.npy)
+                        </div>
+                        <div style="font-size: 1.5em; color: #667eea;">↓</div>
+                        <div class="flow-recognition">
+                            <strong>RECOGNITION:</strong><br>
+                            Image → Detect → Crop → Embed → Compare → Match
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Getting Started</h2>
+                <p><strong>Quick Start Guide:</strong></p>
+                <ol style="margin-left: 20px;">
+                    <li style="margin: 10px 0;">📚 <strong>Explore the API:</strong> Visit the interactive API documentation</li>
+                    <li style="margin: 10px 0;">👤 <strong>Register a Person:</strong> Use POST /api/persons with person_id and name</li>
+                    <li style="margin: 10px 0;">📸 <strong>Upload Training Images:</strong> Send 10-20 face images via POST /api/persons/{id}/train</li>
+                    <li style="margin: 10px 0;">🔍 <strong>Recognize Faces:</strong> Upload images to POST /api/recognize</li>
+                </ol>
+
+                <div class="cta-buttons">
+                    <a href="/docs" class="btn btn-primary">📖 API Documentation</a>
+                    <a href="/health" class="btn btn-secondary">💚 Health Check</a>
+                    <a href="https://github.com/avishayil/coral-vision" class="btn btn-tertiary" target="_blank">📦 GitHub Repository</a>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>API Endpoints</h2>
+                <div class="endpoints">
+                    <ul>
+                        <li>
+                            <div>
+                                <span class="method method-get">GET</span>
+                                <span class="endpoint-path">/health</span>
+                            </div>
+                            <span>Health check</span>
+                        </li>
+                        <li>
+                            <div>
+                                <span class="method method-get">GET</span>
+                                <span class="endpoint-path">/api/persons</span>
+                            </div>
+                            <span>List all persons</span>
+                        </li>
+                        <li>
+                            <div>
+                                <span class="method method-post">POST</span>
+                                <span class="endpoint-path">/api/persons</span>
+                            </div>
+                            <span>Register new person</span>
+                        </li>
+                        <li>
+                            <div>
+                                <span class="method method-get">GET</span>
+                                <span class="endpoint-path">/api/persons/{id}</span>
+                            </div>
+                            <span>Get person details</span>
+                        </li>
+                        <li>
+                            <div>
+                                <span class="method method-delete">DELETE</span>
+                                <span class="endpoint-path">/api/persons/{id}</span>
+                            </div>
+                            <span>Delete person</span>
+                        </li>
+                        <li>
+                            <div>
+                                <span class="method method-post">POST</span>
+                                <span class="endpoint-path">/api/persons/{id}/train</span>
+                            </div>
+                            <span>Upload training images</span>
+                        </li>
+                        <li>
+                            <div>
+                                <span class="method method-post">POST</span>
+                                <span class="endpoint-path">/api/recognize</span>
+                            </div>
+                            <span>Recognize faces</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Example Usage</h2>
+                <pre><code># Register a person
+curl -X POST http://localhost:5000/api/persons \
+  -H "Content-Type: application/json" \
+  -d '{"person_id": "001_john", "name": "John Doe"}'
+
+# Upload training images (generates embeddings immediately!)
+curl -X POST http://localhost:5000/api/persons/001_john/train \
+  -F "images=@photo1.jpg" \
+  -F "images=@photo2.jpg"
+
+# Recognize faces
+curl -X POST http://localhost:5000/api/recognize \
+  -F "images=@test.jpg" \
+  -F "threshold=0.6"</code></pre>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Coral Vision v0.1.0 | Powered by TensorFlow Lite & Google Coral Edge TPU</p>
+            <p>Built with ❤️ for privacy-first face recognition</p>
+        </div>
+    </div>
+
+</body>
+</html>
